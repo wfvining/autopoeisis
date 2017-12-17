@@ -4,9 +4,10 @@ version = "0.1.0"
 authors = ["Will Vining <wfvining@gmail.com>"]
 
 [dependencies]
-rand = "0.3"
+rand = "0.3.18"
 gtk = "^0.3.0"
-gdk = "0.6.0"
+gdk = "0.7.0"
 cairo-rs = "0.3.0"
 relm = "^0.11.0"
 relm-derive = "^0.11.0"
+futures-glib = "0.3.2"
