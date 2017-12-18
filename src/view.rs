@@ -21,7 +21,7 @@ pub struct MyModel {
 impl MyModel {
     fn new() -> Self {
         MyModel {
-            universe: Universe::new(10, 10, 0.05, 3),
+            universe: Universe::new(10, 10, 0.05, 10),
             size: pos(250,250),
             center: pos(62,62),
             scale: 4,
@@ -46,8 +46,8 @@ pub struct Win {
 
 impl Win {
     fn draw(&mut self, catalysts: &[Pos], holes: &[Pos],
-            free_links: &[Pos], single_links: &[(Pos, Option<Pos>, Option<Pos>)],
-            double_links: &[(Pos, Option<Pos>, Option<Pos>)],
+            free_links: &[Pos], single_links: &[Pos],
+            double_links: &[Pos],
             top_left: &Pos) {
         use gdk::prelude::ContextExt;
         let cr = cairo::Context::create_from_window(&self.area.get_window().unwrap());
@@ -74,13 +74,13 @@ impl Win {
         cr.fill();
 
         cr.set_source_rgb(0.0, 0.0, 1.0);
-        for &(pos, _, _) in single_links {
+        for pos in single_links {
             cr.rectangle((pos.x - top_left.x) as f64, (pos.y - top_left.y) as f64, 1.0, 1.0);
         }
         cr.fill();
 
         cr.set_source_rgb(1.0, 1.0, 1.0);
-        for &(pos, _, _) in double_links {
+        for pos in double_links {
             cr.rectangle((pos.x - top_left.x) as f64, (pos.y - top_left.y) as f64, 1.0, 1.0);
         }
         cr.fill();
@@ -105,7 +105,7 @@ impl Update for Win {
         use self::MyMsg::*;
         match event {
             Tick(()) => {
-                for _i in 0..1 {
+                for _i in 0..100 {
                     self.model.universe.update();
                 }
                 let top_left = pos(self.model.center.x - self.model.size.x / 2, self.model.center.y - self.model.size.y / 2);
