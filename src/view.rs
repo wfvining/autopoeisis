@@ -21,7 +21,7 @@ pub struct MyModel {
 impl MyModel {
     fn new() -> Self {
         MyModel {
-            universe: Universe::new(10, 10, 0.05, 10),
+            universe: Universe::new(10, 10, 0.01, 1),
             size: pos(250,250),
             center: pos(62,62),
             scale: 4,

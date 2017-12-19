@@ -292,36 +292,45 @@ impl Universe {
                 self.holes.insert(p.clone());
                 self.catalysts.insert(p1);
             }
+            else if self.is_link(&p1) && !self.is_bonded(&p1) {
+                self.catalysts.remove(&p);
+                self.catalysts.insert(p1.clone());
+                self.links.remove(&p1);
+                self.links.insert(p.clone());
+            }
             assert!(self.num_links() == self.num_holes(), "catalyst - post");
         }
         else if self.is_link(&p) {
             self.update_link(&p)
         }
         else if self.is_hole(&p) {
+            assert!(self.num_links() == self.num_holes(), "update hole - pre");
             let p1 = neighbor(&p, rng.gen_range(0, 4));
             let (ul, lr) = new_bounds(&p1, &self.upper_left, &self.lower_right);
             self.upper_left = ul;
             self.lower_right = lr;
-            
-            // TODO: holes can pass through bonded links.
-            if self.is_link(&p1) && self.num_bonds(&p1) > 0 {
-                    // look at the cell just beyond the link and see if it is substrate
-            }
-            else if self.is_link(&p1) && self.num_bonds(&p1) == 0 {
+
+            if self.is_link(&p1) && !self.is_bonded(&p1) {
+                // displace the free link.
                 self.links.remove(&p1);
                 self.links.insert(p.clone());
+                self.holes.remove(&p);
+                self.holes.insert(p1.clone());
             }
             else if self.is_catalyst(&p1) {
                 self.catalysts.remove(&p1);
                 self.catalysts.insert(p.clone());
-            }
-
-            if !self.is_hole(&p1) && self.num_bonds(&p1) == 0 {
                 self.holes.remove(&p);
                 self.holes.insert(p1.clone());
-                assert!(self.num_links() == self.num_holes(), "hole - move");
             }
-            assert!(self.num_links() == self.num_holes(), "update hole");
+            else if self.is_substrate(&p1) {
+                self.holes.remove(&p);
+                self.holes.insert(p1.clone());
+            }
+            
+            // TODO: holes can pass through bonded links.
+
+            assert!(self.num_links() == self.num_holes(), "update hole - post");
         }
     }
 
