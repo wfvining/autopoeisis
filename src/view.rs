@@ -21,10 +21,10 @@ pub struct MyModel {
 impl MyModel {
     fn new() -> Self {
         MyModel {
-            universe: Universe::new(10, 10, 0.01, 1),
-            size: pos(250,250),
-            center: pos(62,62),
-            scale: 4,
+            universe: Universe::new(10, 10, 0.005, 1),
+            size: pos(64,64),
+            center: pos(0,0),
+            scale: 6,
             mouse: None,
         }
     }
@@ -73,7 +73,7 @@ impl Win {
         }
         cr.fill();
 
-        cr.set_source_rgb(0.0, 0.0, 1.0);
+        cr.set_source_rgb(1.0, 0.41, 0.71);
         for pos in single_links {
             cr.rectangle((pos.x - top_left.x) as f64, (pos.y - top_left.y) as f64, 1.0, 1.0);
         }
@@ -97,7 +97,7 @@ impl Update for Win {
     }
 
     fn subscriptions(&mut self, relm: &Relm<Self>) {
-        let stream = Interval::new(Duration::from_millis(1));
+        let stream = Interval::new(Duration::from_millis(10));
         relm.connect_exec_ignore_err(stream, MyMsg::Tick);
     }
 
@@ -105,9 +105,7 @@ impl Update for Win {
         use self::MyMsg::*;
         match event {
             Tick(()) => {
-                for _i in 0..100 {
-                    self.model.universe.update();
-                }
+                self.model.universe.update();
                 let top_left = pos(self.model.center.x - self.model.size.x / 2, self.model.center.y - self.model.size.y / 2);
                 let catalysts = self.model.universe.get_catalysts_in(&top_left, &self.model.size);
                 let holes = self.model.universe.get_holes_in(&top_left, &self.model.size);
