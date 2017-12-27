@@ -21,10 +21,10 @@ pub struct MyModel {
 impl MyModel {
     fn new() -> Self {
         MyModel {
-            universe: Universe::new(10, 10, 0.005, 1),
-            size: pos(64,64),
+            universe: Universe::new(50, 50, 0.008, 1),
+            size: pos(120,120),
             center: pos(0,0),
-            scale: 6,
+            scale: 4,
             mouse: None,
         }
     }
@@ -67,7 +67,7 @@ impl Win {
         }
         cr.fill();
 
-        cr.set_source_rgb(0.0, 1.0, 0.0); // green
+        cr.set_source_rgb(0.0, 1.0, 1.0); // green
         for pos in free_links {
             cr.rectangle((pos.x - top_left.x) as f64, (pos.y - top_left.y) as f64, 1.0, 1.0);
         }
@@ -97,7 +97,7 @@ impl Update for Win {
     }
 
     fn subscriptions(&mut self, relm: &Relm<Self>) {
-        let stream = Interval::new(Duration::from_millis(10));
+        let stream = Interval::new(Duration::from_millis(1));
         relm.connect_exec_ignore_err(stream, MyMsg::Tick);
     }
 
@@ -171,7 +171,7 @@ impl Widget for Win {
 
         hbox.pack_start(&area, false, false, 0);
         window.add(&hbox);
-        window.set_title("Autopoeisis");
+        window.set_title("Autopoiesis");
         window.show_all();
 
         use self::MyMsg::*;

@@ -46,10 +46,14 @@ pub struct Universe {
 
 fn neighbor(p: &Pos, n: i32) -> Pos {
     match n {
-        0 => pos(p.x, p.y-1),
-        1 => pos(p.x+1,   p.y),
-        2 => pos(p.x, p.y+1),
+        0 => pos(p.x,   p.y-1),
+        1 => pos(p.x+1, p.y),
+        2 => pos(p.x,   p.y+1),
         3 => pos(p.x-1, p.y),
+        4 => pos(p.x-1, p.y-1),
+        5 => pos(p.x-1, p.y+1),
+        6 => pos(p.x+1, p.y+1),
+        7 => pos(p.x+1, p.y-1),
         _ => p.clone() // this is an ugly hack
     }
 }
@@ -142,12 +146,13 @@ impl Universe {
     }
 
     fn bonded(&self, p1: &Pos, p2: &Pos) -> bool {
+        let b = Bond::new(*p1, *p2);
         for ref bond in self.bonds.iter() {
-            if **bond == Bond::new(*p1, *p2) {
+            if **bond == b {
                 return true;
             }
         }
-        return false;
+        false
     }
     
     fn is_bonded(&self, p: &Pos) -> bool {
@@ -167,13 +172,21 @@ impl Universe {
         self.catalysts.len()
     }
 
+    /// check that all bonds are valid (ie. have a corresponding
+    /// adjacent link)
+    fn validate_bonds(&self) -> bool {
+        self.bonds.iter()
+            .fold(true, |acc, ref bond| {
+                self.is_link(&bond.a) && self.is_link(&bond.b) && acc
+            })
+    }
+
     fn bond(&mut self, p: &Pos) {
-        assert!(self.num_links() == self.num_holes(), "bond() - pre");
         let neighboring_links: Vec<Pos> = (0..4).into_iter()
             .map(|i| neighbor(&p, i))
             .filter(|&n| self.is_link(&n)
                     && self.num_bonds(&n) < 2
-                     // don't include links that are already bonded to p
+                    // don't include links that are already bonded to p
                     && !self.bonded(&n, &p))
             .collect();
         if !neighboring_links.is_empty() {
@@ -181,7 +194,6 @@ impl Universe {
             let b = neighboring_links[rng.gen_range(0, neighboring_links.len())];
             self.bonds.insert(Bond::new(b, *p));
         }
-        assert!(self.num_links() == self.num_holes(), "bond() - post");
     }
 
     /// Eliminate any bonds that are no longer valid since the link at
@@ -191,12 +203,27 @@ impl Universe {
             .retain(|ref bond| bond.a != *dead_link && bond.b != *dead_link);
     }
 
+    /// returns a list of all holes adjacent to position p.
+    fn get_adjacent_holes(&self, p: &Pos) -> Vec<Pos> {
+        (0..8).into_iter()
+            .map(|i| neighbor(p, i))
+            .filter(|&p| self.is_hole(&p)).collect()
+    }
+
+    /// return a list of holes that are separated from p by a bonded link
+    fn get_displaced_holes(&self, p: &Pos) -> Vec<Pos> {
+        (0..4).into_iter()
+            .map(|i| (neighbor(p, i), neighbor(&neighbor(p, i), i)))
+            .filter(|&p| self.is_link(&p.0) && self.is_bonded(&p.0) && self.is_hole(&p.1))
+            .map(|p| p.1).collect()
+    }
+
     fn update_link(&mut self, p: &Pos) {
         let mut rng = rand::thread_rng();
         let d = rng.gen_range(0.0, 1.0);
-        assert!(self.is_link(&p));
-        assert!(!self.is_hole(&p));
         if d < self.decay_rate {
+            // now remove the link
+            self.links.remove(p);
             // find a hole to put the second substrate element into.
             let neighboring_holes: Vec<Pos> = (0..4).into_iter()
                 .map(|i| neighbor(&p, i))
@@ -223,12 +250,14 @@ impl Universe {
                 let h = &neighboring_holes[i];
                 self.holes.remove(h);
             }
-            // now remove the link
-            self.links.remove(p);
             self.fix_bonds(p);
+            assert!(self.validate_bonds(), "update link - post:decay");
+            assert!(self.num_bonds(p) <= (0..4).into_iter()
+                    .map(|i| neighbor(&p, i))
+                    .filter(|&n| self.is_link(&n) && self.is_link(&n))
+                    .fold(0, |s, _| s + 1), "decay - post");
         }
         else {
-            assert!(self.num_links() == self.num_holes(), "move link - pre");
             // only free links move
             let p = if !self.is_bonded(&p) {
                 let p1 = neighbor(&p, rng.gen_range(0,4));
@@ -236,29 +265,146 @@ impl Universe {
                 self.upper_left = ul;
                 self.lower_right = lr;
                 if self.is_substrate(&p1) {
-                    self.links.remove(&p);
-                    self.links.insert(p1.clone());
+                    let holes = self.get_adjacent_holes(&p1);
+                    let displaced_holes = self.get_displaced_holes(&p1);
+                    if !holes.is_empty() {
+                        let i = rng.gen_range(0, holes.len());
+                        self.holes.remove(&holes[i]);
+                        self.holes.insert(p.clone());
+                        self.links.remove(&p);
+                        self.links.insert(p1.clone());
+                    }
+                    else if !displaced_holes.is_empty() {
+                        let i = rng.gen_range(0, displaced_holes.len());
+                        self.holes.remove(&displaced_holes[i]);
+                        self.holes.insert(p.clone());
+                        self.links.remove(&p);
+                        self.links.insert(p1.clone());
+                    }
+                    else {
+                        self.links.remove(&p);
+                        self.links.insert(p1.clone());
+                    }
+                    p1
                 }
                 else if self.is_hole(&p1) {
-                    assert!(self.holes.remove(&p1));
+                    self.holes.remove(&p1);
                     self.links.remove(&p);
-                    assert!(self.holes.insert(p.clone()));
+                    self.holes.insert(p.clone());
                     self.links.insert(p1.clone());
-                    assert!(self.num_links() == self.num_holes(), "move link - hole");
+                    p1
                 }
-                assert!(self.num_links() == self.num_holes(), "move link");
-                p1
+                else {
+                    *p
+                }
             } else { *p };
-
             // if there are less than two bonds
+            assert!(self.validate_bonds(), "update link - move:bond");
             if self.num_bonds(&p) < 2 {
                 self.bond(&p);
             }
+            assert!(self.validate_bonds(), "update link - post:move");
         }
     }
-    
+
+    fn move_catalyst(&mut self, p: &Pos) -> Pos {
+        let mut rng = rand::thread_rng();
+        let p1 = neighbor(&p, rng.gen_range(0, 4));
+        let (ul, lr) = new_bounds(&p1, &self.upper_left, &self.lower_right);
+        self.upper_left = ul;
+        self.lower_right = lr;
+
+        if self.is_hole(&p1) {
+            self.catalysts.remove(&p);
+            self.holes.remove(&p1);
+            self.holes.insert(p.clone());
+            self.catalysts.insert(p1);
+        }
+        else if self.is_link(&p1) && !self.is_bonded(&p1) {
+            let adjacent_holes = self.get_adjacent_holes(&p1);
+            let displaced_holes = self.get_displaced_holes(&p1);
+            if !adjacent_holes.is_empty() {
+                let h = adjacent_holes[rng.gen_range(0, adjacent_holes.len())];
+                self.links.remove(&p1);
+                self.holes.remove(&h);
+                self.links.insert(h.clone());
+                self.holes.insert(p.clone());
+                self.catalysts.remove(&p);
+                self.catalysts.insert(p1.clone());
+                self.bond(&h);
+            }
+            else if !displaced_holes.is_empty() {
+                let h = displaced_holes[rng.gen_range(0, displaced_holes.len())];
+                self.links.remove(&p1);
+                self.holes.remove(&h);
+                self.links.insert(h.clone());
+                self.holes.insert(p.clone());
+                self.catalysts.remove(&p);
+                self.catalysts.insert(p1.clone());
+                self.bond(&h);
+            } else {
+                self.catalysts.remove(&p);
+                self.catalysts.insert(p1.clone());
+                self.links.remove(&p1);
+                self.links.insert(p.clone());
+                self.bond(&p);
+            }
+        }
+        else if !self.is_catalyst(&p1) {
+            let adjacent_holes = self.get_adjacent_holes(&p1);
+            let displaced_holes = self.get_displaced_holes(&p1);
+            if !adjacent_holes.is_empty() {
+                let h = adjacent_holes[rng.gen_range(0, adjacent_holes.len())];
+                self.holes.remove(&h);
+                self.holes.insert(p.clone());
+                self.catalysts.remove(&p);
+                self.catalysts.insert(p1.clone());
+            }
+            else if !displaced_holes.is_empty() {
+                let h = displaced_holes[rng.gen_range(0, displaced_holes.len())];
+                self.holes.remove(&h);
+                self.holes.insert(p.clone());
+                self.catalysts.remove(&p);
+                self.catalysts.insert(p1.clone());
+            } else {
+                self.catalysts.remove(&p);
+                self.catalysts.insert(p1.clone());
+            }
+        }
+        else {
+            return *p;
+        }
+        p1
+    }
+
+    fn produce(&mut self, p: &Pos) {
+        let mut rng = rand::thread_rng();
+        // get a list of all neighboring positions that have substrate
+        let neighbors: Vec<Pos> = (0..8).into_iter()
+            .map(|i| neighbor(&p, i))
+            .filter(|&pos| self.is_substrate(&pos)).collect();
+        if neighbors.is_empty() {
+            return;
+        }
+        let p1 = neighbors[rng.gen_range(0, neighbors.len())];
+
+        let neighbors2: Vec<Pos> = (0..8).into_iter()
+            .map(|i| neighbor(&p, i))
+            .filter(|&pos| self.is_substrate(&pos) && pos != p1).collect();
+        if neighbors2.is_empty() {
+            return;
+        }
+        let p2 = neighbors2[rng.gen_range(0, neighbors2.len())];
+
+        self.holes.insert(p2);
+        self.links.insert(p1.clone());
+        self.bond(&p1);
+    }
+
     /// Select a random location and update it.
     pub fn update(&mut self) {
+        assert!(self.validate_bonds(), "update pre");
+
         let mut rng = rand::thread_rng();
         let i = rng.gen_range(0, self.num_holes() + self.num_links() + self.num_catalysts());
         let p = if i < self.num_holes() {
@@ -271,59 +417,30 @@ impl Universe {
 
         if self.is_catalyst(&p) {
             assert!(self.num_links() == self.num_holes(), "catalyst - pre");
-            // react with the substrate and move a random direction.
-            // select a random direction to move
-            let neighbors: Vec<Pos> = (0..4).into_iter()
-                .map(|i| neighbor(&p, i))
-                .filter(|&pos| !self.is_bonded(&pos)).collect();
-            if neighbors.is_empty() {
-                return; // can't move.
-            }
-            let p1 = neighbors[rng.gen_range(0, neighbors.len())];
-            let neighbors2: Vec<Pos> = (0..4).into_iter()
-                .map(|i| neighbor(&p, i))
-                .filter(|&pos| self.is_substrate(&pos) && pos != p1).collect();
-            
-            let (ul, lr) = new_bounds(&p1, &self.upper_left, &self.lower_right);
-            self.upper_left = ul;
-            self.lower_right = lr;
-                        
+            assert!(self.num_bonds(&p) <= (0..4).into_iter()
+                    .map(|i| neighbor(&p, i))
+                    .filter(|&n| self.is_link(&n) && self.is_link(&n)).fold(0, |s, _| s + 1), "catalyst - pre 1");
+            let p = self.move_catalyst(&p);
+            self.produce(&p);
+
             // move the catalyst and create a new link and a new hole
-            if self.is_substrate(&p1) && !neighbors2.is_empty() {
-                let p2 = neighbors2[rng.gen_range(0, neighbors2.len())];
-                let (ul, lr) = new_bounds(&p2, &ul, &lr);
-                self.upper_left = ul;
-                self.lower_right = lr;
-                
-                self.catalysts.remove(&p);
-                self.holes.insert(p2);
-                self.links.insert(p.clone());
-                self.catalysts.insert(p1);
-            }
-            else if self.is_hole(&p1) {
-                self.catalysts.remove(&p);
-                self.holes.remove(&p1);
-                self.holes.insert(p.clone());
-                self.catalysts.insert(p1);
-            }
-            else if self.is_link(&p1) {
-                self.catalysts.remove(&p);
-                self.catalysts.insert(p1.clone());
-                self.links.remove(&p1);
-                self.links.insert(p.clone());
-            }
-            else if !self.is_catalyst(&p1) {
-                self.catalysts.remove(&p);
-                self.catalysts.insert(p1.clone());
-            }
+            assert!(self.validate_bonds(), "update catalyst - post");
+            assert!(self.num_bonds(&p) <= (0..4).into_iter()
+                    .map(|i| neighbor(&p, i))
+                    .filter(|&n| self.is_link(&n) && self.is_link(&n)).fold(0, |s, _| s + 1), "catalyst - post 1");
             assert!(self.num_links() == self.num_holes(), "catalyst - post");
         }
         else if self.is_link(&p) {
-            self.update_link(&p)
+            self.update_link(&p);
+            assert!(self.validate_bonds(), "update link - post");
         }
         else if self.is_hole(&p) {
+            assert!(self.num_bonds(&p) <= (0..4).into_iter()
+                    .map(|i| neighbor(&p, i))
+                    .filter(|&n| self.is_link(&n) && self.is_link(&n)).fold(0, |s, _| s + 1), "hole - pre 1");
             assert!(self.num_links() == self.num_holes(), "update hole - pre");
-            let p1 = neighbor(&p, rng.gen_range(0, 4));
+            let i = rng.gen_range(0, 4);
+            let p1 = neighbor(&p, i);
             let (ul, lr) = new_bounds(&p1, &self.upper_left, &self.lower_right);
             self.upper_left = ul;
             self.lower_right = lr;
@@ -334,6 +451,7 @@ impl Universe {
                 self.links.insert(p.clone());
                 self.holes.remove(&p);
                 self.holes.insert(p1.clone());
+                self.bond(&p);
             }
             else if self.is_catalyst(&p1) {
                 self.catalysts.remove(&p1);
@@ -345,10 +463,34 @@ impl Universe {
                 self.holes.remove(&p);
                 self.holes.insert(p1.clone());
             }
+            else if self.is_link(&p1) && self.is_bonded(&p1) {
+                let n = neighbor(&p1, i);
+                // if self.is_link(&n) && !self.is_bonded(&n) {
+                //     self.holes.remove(&p);
+                //     self.holes.insert(n.clone());
+                //     self.links.remove(&n);
+                //     self.links.insert(p.clone());
+                // }
+                // else if self.is_catalyst(&n) {
+                //     self.holes.remove(&p);
+                //     self.holes.insert(n.clone());
+                //     self.catalysts.remove(&n);
+                //     self.catalysts.insert(p.clone());
+                // }
+                /* else */ if self.is_substrate(&n) {
+                    self.holes.remove(&p);
+                    self.holes.insert(n.clone());
+                }
+            }
             // TODO: holes can pass through bonded links.
-  
-            assert!(self.num_links() == self.num_holes(), "update hole - post");
+            assert!(self.validate_bonds(), "update hole - post 0");
+            assert!(self.num_bonds(&p) <= (0..4).into_iter()
+                    .map(|i| neighbor(&p, i))
+                    .filter(|&n| self.is_link(&n) && self.is_link(&n)).fold(0, |s, _| s + 1), "hole - post 1");
+            assert!(self.num_links() == self.num_holes(), "update hole - post 2");
         }
+
+        assert!(self.validate_bonds(), "update post");
     }
 
     pub fn get_catalysts_in(&self, top_left: &Pos, size: &Pos) -> Vec<Pos> {
