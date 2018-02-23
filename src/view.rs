@@ -21,10 +21,10 @@ pub struct MyModel {
 impl MyModel {
     fn new() -> Self {
         MyModel {
-            universe: Universe::new(50, 50, 0.008, 1),
-            size: pos(120,120),
+            universe: Universe::new(25, 25, 0.05, 1),
+            size: pos(60,60),
             center: pos(0,0),
-            scale: 4,
+            scale: 8,
             mouse: None,
         }
     }
@@ -55,7 +55,7 @@ impl Win {
         cr.paint();
         cr.scale(self.model.scale as f64, self.model.scale as f64);
 
-        cr.set_source_rgb(1.0, 0.0, 0.0); // red
+        cr.set_source_rgb(0.6, 0.0, 0.0); // red
         for pos in catalysts {
             cr.rectangle((pos.x - top_left.x) as f64, (pos.y - top_left.y) as f64, 1.0, 1.0);
         }
@@ -97,7 +97,7 @@ impl Update for Win {
     }
 
     fn subscriptions(&mut self, relm: &Relm<Self>) {
-        let stream = Interval::new(Duration::from_millis(1));
+        let stream = Interval::new(Duration::from_millis(25));
         relm.connect_exec_ignore_err(stream, MyMsg::Tick);
     }
 

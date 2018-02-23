@@ -54,8 +54,13 @@ fn neighbor(p: &Pos, n: i32) -> Pos {
         5 => pos(p.x-1, p.y+1),
         6 => pos(p.x+1, p.y+1),
         7 => pos(p.x+1, p.y-1),
-        _ => p.clone() // this is an ugly hack
+        _ => panic!("neighbor(): index out of range!"),
     }
+}
+
+fn adjacent(p: &Pos, q: &Pos) -> bool {
+    (p.x == q.x && (p.y == q.y+1 || p.y == q.y-1))
+        || (p.y == q.y && (p.x == q.x+1 || p.x == q.x-1))
 }
 
 fn distance(p1: &Pos, p2: &Pos) -> f64 {
@@ -181,11 +186,31 @@ impl Universe {
             })
     }
 
+    fn bond_angle_obtuse(&self, p: &Pos, b: &Pos) -> bool {
+        if self.num_bonds(&p) == 0 {
+            true
+        }
+        else {
+            (0..8).into_iter()
+                .map(|i| neighbor(&p, i))
+                .fold(true, |acc, n| acc && !(self.bonded(&n, &p) && adjacent(&n, b)))
+        }
+    }
+
     fn bond(&mut self, p: &Pos) {
-        let neighboring_links: Vec<Pos> = (0..4).into_iter()
+        // TODO: prefferentially bond to already bound links
+        // let neighboring_free_links: Vec<Pos> = (0..8).into_iter()
+        //     .map(|i| neighbor(&p, i))
+        //     .filter(|&n| self.is_link(&n)
+        //             && self.num_bonds(&n) == 0
+        //             && !self.bonded(&n, &p))
+        //     .collect();
+        let neighboring_links: Vec<Pos> = (0..8).into_iter()
             .map(|i| neighbor(&p, i))
             .filter(|&n| self.is_link(&n)
                     && self.num_bonds(&n) < 2
+                    // exclude links that would result in an acute bond angle
+                    && self.bond_angle_obtuse(p, &n)
                     // don't include links that are already bonded to p
                     && !self.bonded(&n, &p))
             .collect();
@@ -349,8 +374,11 @@ impl Universe {
                 self.links.insert(p.clone());
                 self.bond(&p);
             }
+            assert!(self.catalysts.is_disjoint(&self.links), "displace links: 0");
+            assert!(self.catalysts.is_disjoint(&self.holes), "displace links: 0");
+            assert!(self.links.is_disjoint(&self.holes), "displace links: 0");
         }
-        else if !self.is_catalyst(&p1) {
+        else if !self.is_catalyst(&p1) && self.is_substrate(&p1) {
             let adjacent_holes = self.get_adjacent_holes(&p1);
             let displaced_holes = self.get_displaced_holes(&p1);
             if !adjacent_holes.is_empty() {
@@ -374,31 +402,112 @@ impl Universe {
         else {
             return *p;
         }
+
+        assert!(self.catalysts.is_disjoint(&self.links));
+        assert!(self.catalysts.is_disjoint(&self.holes));
+        assert!(self.links.is_disjoint(&self.holes));
+        
         p1
+    }
+
+    fn select_neighbor(&self, p: &Pos, i: i32) -> Pos {
+        let n = neighbor(p, i);
+        assert!(self.is_catalyst(p));
+        assert!(self.is_substrate(&n));
+        if i == 1 || i == 3 {
+            if self.is_substrate(&neighbor(&n, 0))
+                && !self.is_substrate(&neighbor(&n, 2))
+            {
+                neighbor(&n, 0)
+            }
+            else if !self.is_substrate(&neighbor(&n, 0))
+                && self.is_substrate(&neighbor(&n, 2))
+            {
+                neighbor(&n, 2)
+            }
+            else
+            {
+                assert!(self.is_substrate(&neighbor(&n, 0)) || self.is_substrate(&neighbor(&n, 2)));
+                assert!(self.is_substrate(&neighbor(&n, 0)));
+                assert!(self.is_substrate(&neighbor(&n, 2)));
+                if rand::random() {
+                    neighbor(&n, 0)
+                } else {
+                    neighbor(&n, 2)
+                }
+            }
+        }
+        else {
+            if self.is_substrate(&neighbor(&n, 1))
+                && !self.is_substrate(&neighbor(&n, 3))
+            {
+                neighbor(&n, 1)
+            }
+            else if !self.is_substrate(&neighbor(&n, 1))
+                && self.is_substrate(&neighbor(&n, 3))
+            {
+                neighbor(&n, 3)
+            }
+            else
+            {
+                assert!(self.is_substrate(&neighbor(&n, 1)) || self.is_substrate(&neighbor(&n, 3)));
+                assert!(self.is_substrate(&neighbor(&n, 1)));
+                assert!(self.is_substrate(&neighbor(&n, 3)));
+                if rand::random() {
+                    neighbor(&n, 1)
+                } else {
+                    neighbor(&n, 3)
+                }
+            }
+        }
     }
 
     fn produce(&mut self, p: &Pos) {
         let mut rng = rand::thread_rng();
-        // get a list of all neighboring positions that have substrate
-        let neighbors: Vec<Pos> = (0..8).into_iter()
-            .map(|i| neighbor(&p, i))
-            .filter(|&pos| self.is_substrate(&pos)).collect();
+        let mut neighbors = vec![];
+        for i in 0..4 {
+            let n = neighbor(p, i);
+            if i == 1 || i == 3 {
+                // look above and below for a neighbor
+                if self.is_substrate(&n) &&
+                    (self.is_substrate(&neighbor(&n, 0))
+                     || self.is_substrate(&neighbor(&n, 2)))
+                {
+                    assert!(self.is_substrate(&neighbor(&n, 0)) || self.is_substrate(&neighbor(&n, 2)));
+                    neighbors.push(i);
+                }
+            }
+            else {
+                // look left and right for a neighbor
+                if self.is_substrate(&n) &&
+                    (self.is_substrate(&neighbor(&n, 1))
+                     || self.is_substrate(&neighbor(&n, 3)))
+                {
+                    assert!(self.is_substrate(&neighbor(&n, 1)) || self.is_substrate(&neighbor(&n, 3)));
+                    neighbors.push(i);
+                }
+            }
+        }
         if neighbors.is_empty() {
             return;
         }
-        let p1 = neighbors[rng.gen_range(0, neighbors.len())];
 
-        let neighbors2: Vec<Pos> = (0..8).into_iter()
-            .map(|i| neighbor(&p, i))
-            .filter(|&pos| self.is_substrate(&pos) && pos != p1).collect();
-        if neighbors2.is_empty() {
-            return;
-        }
-        let p2 = neighbors2[rng.gen_range(0, neighbors2.len())];
+        let i = neighbors[rng.gen_range(0, neighbors.len())];
+        let n = neighbor(p, i);
+        let n1 = self.select_neighbor(p, i);
 
-        self.holes.insert(p2);
-        self.links.insert(p1.clone());
-        self.bond(&p1);
+        assert!(self.is_substrate(&n));
+        assert!(self.is_substrate(&n1));
+        assert!(n != n1);
+        
+        self.holes.insert(n1);
+        self.links.insert(n);
+        self.bond(&n);
+
+        assert!(self.catalysts.is_disjoint(&self.links), "produce - catalysts not disjoint from links");
+        assert!(self.catalysts.is_disjoint(&self.holes), "produce - catalysts not disjoint from holes");
+        assert!(self.links.is_disjoint(&self.holes), "produce - links not disjoint from holes");
+
     }
 
     /// Select a random location and update it.
@@ -419,7 +528,9 @@ impl Universe {
             assert!(self.num_links() == self.num_holes(), "catalyst - pre");
             assert!(self.num_bonds(&p) <= (0..4).into_iter()
                     .map(|i| neighbor(&p, i))
-                    .filter(|&n| self.is_link(&n) && self.is_link(&n)).fold(0, |s, _| s + 1), "catalyst - pre 1");
+                    .filter(|&n| self.is_link(&n) && self.is_link(&n)).fold(0, |s, _| s + 1),
+                    "catalyst - pre 1");
+
             let p = self.move_catalyst(&p);
             self.produce(&p);
 
@@ -484,7 +595,7 @@ impl Universe {
             }
             // TODO: holes can pass through bonded links.
             assert!(self.validate_bonds(), "update hole - post 0");
-            assert!(self.num_bonds(&p) <= (0..4).into_iter()
+            assert!(self.num_bonds(&p) <= (0..8).into_iter()
                     .map(|i| neighbor(&p, i))
                     .filter(|&n| self.is_link(&n) && self.is_link(&n)).fold(0, |s, _| s + 1), "hole - post 1");
             assert!(self.num_links() == self.num_holes(), "update hole - post 2");
